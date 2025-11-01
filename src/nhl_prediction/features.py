@@ -71,6 +71,9 @@ def engineer_team_features(logs: pd.DataFrame, rolling_windows: Iterable[int] = 
 
     # Rolling statistics
     roll_features: dict[str, pd.Series] = {}
+    helper_cols = ["_home_flag", "_away_flag", "_home_win_flag", "_away_win_flag", "_home_goal_flag", "_away_goal_flag"]
+    logs.drop(columns=helper_cols, inplace=True, errors="ignore")
+
     for window in rolling_windows:
         roll_features[f"rolling_win_pct_{window}"] = group["win"].transform(
             lambda s, w=window: _lagged_rolling(s, w)
@@ -123,6 +126,48 @@ def engineer_team_features(logs: pd.DataFrame, rolling_windows: Iterable[int] = 
     logs["pk_pct_prior"] = group["penaltyKillPct"].shift(1) / 100.0
     logs["special_teams_net_prior"] = (group["powerPlayNetPct"].shift(1) - group["penaltyKillNetPct"].shift(1)) / 100.0
 
+    logs["_home_flag"] = (logs["homeRoad"] == "H").astype(int)
+    logs["_away_flag"] = 1 - logs["_home_flag"]
+    logs["_home_win_flag"] = logs["win"] * logs["_home_flag"]
+    logs["_away_win_flag"] = logs["win"] * logs["_away_flag"]
+    logs["_home_goal_flag"] = logs["goal_diff"] * logs["_home_flag"]
+    logs["_away_goal_flag"] = logs["goal_diff"] * logs["_away_flag"]
+
+    group_latest = logs.groupby(["teamId", "seasonId"], sort=False)
+
+    logs["home_games_prior"] = group_latest["_home_flag"].cumsum() - logs["_home_flag"]
+    logs["away_games_prior"] = group_latest["_away_flag"].cumsum() - logs["_away_flag"]
+
+    home_wins_prior = group_latest["_home_win_flag"].cumsum() - logs["_home_win_flag"]
+    away_wins_prior = group_latest["_away_win_flag"].cumsum() - logs["_away_win_flag"]
+    home_goal_diff_prior = group_latest["_home_goal_flag"].cumsum() - logs["_home_goal_flag"]
+    away_goal_diff_prior = group_latest["_away_goal_flag"].cumsum() - logs["_away_goal_flag"]
+
+    logs["home_win_pct_prior"] = np.divide(
+        home_wins_prior,
+        logs["home_games_prior"],
+        out=np.zeros(len(logs)),
+        where=logs["home_games_prior"] != 0,
+    )
+    logs["home_goal_diff_avg_prior"] = np.divide(
+        home_goal_diff_prior,
+        logs["home_games_prior"],
+        out=np.zeros(len(logs)),
+        where=logs["home_games_prior"] != 0,
+    )
+    logs["away_win_pct_prior"] = np.divide(
+        away_wins_prior,
+        logs["away_games_prior"],
+        out=np.zeros(len(logs)),
+        where=logs["away_games_prior"] != 0,
+    )
+    logs["away_goal_diff_avg_prior"] = np.divide(
+        away_goal_diff_prior,
+        logs["away_games_prior"],
+        out=np.zeros(len(logs)),
+        where=logs["away_games_prior"] != 0,
+    )
+
     # Schedule congestion indicators
     gap = logs.groupby("teamId", sort=False)["rest_days"]
     recent_one_day = gap.transform(lambda s: s.fillna(10).le(1).astype(int))
@@ -156,6 +201,12 @@ def engineer_team_features(logs: pd.DataFrame, rolling_windows: Iterable[int] = 
         "pp_pct_prior",
         "pk_pct_prior",
         "special_teams_net_prior",
+        "home_win_pct_prior",
+        "home_goal_diff_avg_prior",
+        "away_win_pct_prior",
+        "away_goal_diff_avg_prior",
+        "home_games_prior",
+        "away_games_prior",
         "rest_days",
         "is_b2b",
         "games_last_3d",
