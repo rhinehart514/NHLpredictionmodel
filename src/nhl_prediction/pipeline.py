@@ -106,11 +106,34 @@ def build_dataset(seasons: Iterable[str]) -> Dataset:
             games["rolling_pp_pct_5_home"] - games["rolling_pk_pct_5_away"]
         )
         feature_columns.append("special_teams_matchup")
+        games["special_teams_ratio"] = np.divide(
+            games["rolling_pp_pct_5_home"],
+            games["rolling_pk_pct_5_away"].replace(0, np.nan),
+        ).fillna(0.0)
+        feature_columns.append("special_teams_ratio")
     if {"rolling_pp_pct_5_away", "rolling_pk_pct_5_home"} <= game_columns:
         games["special_teams_matchup_inverse"] = (
             games["rolling_pk_pct_5_home"] - games["rolling_pp_pct_5_away"]
         )
         feature_columns.append("special_teams_matchup_inverse")
+        games["special_teams_ratio_inverse"] = np.divide(
+            games["rolling_pp_pct_5_away"],
+            games["rolling_pk_pct_5_home"].replace(0, np.nan),
+        ).fillna(0.0)
+        feature_columns.append("special_teams_ratio_inverse")
+
+    if {"shotsFor_roll_5_home", "shotsAgainst_roll_5_away"} <= game_columns:
+        games["shot_pressure_ratio"] = np.divide(
+            games["shotsFor_roll_5_home"],
+            games["shotsAgainst_roll_5_away"].replace(0, np.nan),
+        ).fillna(0.0)
+        feature_columns.append("shot_pressure_ratio")
+    if {"shotsFor_roll_5_away", "shotsAgainst_roll_5_home"} <= game_columns:
+        games["shot_pressure_ratio_inverse"] = np.divide(
+            games["shotsFor_roll_5_away"],
+            games["shotsAgainst_roll_5_home"].replace(0, np.nan),
+        ).fillna(0.0)
+        feature_columns.append("shot_pressure_ratio_inverse")
 
     # Rest-based features.
     def _rest_bucket(days: float) -> str:

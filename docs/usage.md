@@ -22,7 +22,7 @@ This project ingests NHL team/game data, engineers matchup-level features, and t
    ```
    - Trains on seasons `20212022` + `20222023`, evaluates on `20232024`.
    - Automatically tunes logistic-regression regularisation on the penultimate season and keeps a calibrated 0.500 decision threshold for clean out-of-sample metrics.
-   - Want to try a specific regularisation strength? Add `--logreg-c <value>` (e.g. `--logreg-c 0.033`) to skip tuning; the latest feature set pushes the 2023‑24 hold-out to **≈0.632 accuracy** (log loss ≈0.672, ROC-AUC ≈0.656).
+   - Want to try a specific regularisation strength? Add `--logreg-c <value>` (e.g. `--logreg-c 0.018`) to skip tuning; the current feature set hits **≈0.632 accuracy**, **0.665 log loss**, and **0.659 ROC-AUC** on the 2023‑24 hold-out.
    - Outputs accuracy, log loss, Brier score, ROC-AUC.
 
 ## What The Pipeline Does
@@ -32,11 +32,11 @@ This project ingests NHL team/game data, engineers matchup-level features, and t
    - Season win %, goal differential, shot margin, and win streak context.  
    - Home/away-specific win % and goal differential prior to each game.  
    - Rolling 3/5/10 game averages (win %, special teams, faceoffs).  
-   - Rest indicators (days since previous game), special-teams net differential.
+   - Rest indicators (days since previous game), special-teams net and ratio metrics, shot-pressure ratios.
 3. **Assemble games** (`build_game_dataframe`)  
    - Merges home & away team rows into a single record.  
    - Computes feature differentials (home minus away) and target `home_win`.  
-   - Adds Elo ratings, team ID dummies, head-to-head memory (last meeting result + days gap), plus live home/away form signals.
+   - Adds Elo ratings, team ID dummies, head-to-head memory (last meeting result + days gap), plus live home/away form signals and conference/division matchup flags.
 4. **Train model** (`train.py`)  
    - Scales features, fits logistic regression.  
    - Reports metrics vs. majority-class baseline.

@@ -14,7 +14,7 @@ from nhl_prediction.train import compare_models
 
 DEFAULT_TRAIN_SEASONS = ["20212022", "20222023"]
 DEFAULT_TEST_SEASON = "20232024"
-DEFAULT_LOGREG_C = 0.033
+DEFAULT_LOGREG_C = 0.018
 
 st.set_page_config(page_title="NHL Game Prediction Dashboard", layout="wide")
 st.title("NHL Game Prediction Dashboard")
@@ -131,9 +131,9 @@ with st.sidebar:
     )
     logreg_c_value = st.select_slider(
         "Logistic Regression C",
-        options=[0.005, 0.01, 0.02, 0.025, 0.03, 0.033, 0.035, 0.04, 0.05],
+        options=[0.005, 0.01, 0.015, 0.018, 0.02, 0.025, 0.03, 0.033, 0.035, 0.04, 0.05],
         value=DEFAULT_LOGREG_C,
-        help="Higher C = weaker regularisation. 0.033 is the new sweet spot on the 2023‑24 holdout (≈63% accuracy).",
+        help="Higher C = weaker regularisation. 0.018 is currently the sweet spot on the 2023‑24 holdout (≈63% accuracy, log loss ≈0.665).",
     )
     st.caption(
         "Season IDs follow NHL notation: e.g., 20232024 represents the 2023-24 regular season."
