@@ -68,7 +68,10 @@ Refresh or rerun the dashboard after new NHL games conclude so the latest logs a
    - `predictions_<season>.csv`: probabilities, outcomes, and key matchup features.
    - `feature_importance.csv`: top coefficient impacts after de-standardisation.
    - `roc_curve.png`, `calibration_curve.png`, `confusion_matrix.png`: slide-ready visuals.
+   - `model_comparison.png`: quick comparison between the pre-change baseline and current pipeline metrics.
 3. Adjust seasons with `--train-seasons` / `--test-season` flags to tailor the evaluation view.
+
+![Model performance comparison](../reports/model_comparison.png)
 
 ## Predicting the Next Slate
 1. Ensure the NHL Stats API has published the most recent game logs (usually available the morning after games).
