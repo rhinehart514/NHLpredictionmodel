@@ -71,7 +71,12 @@ def _is_better(candidate: Dict[str, Any], incumbent: Dict[str, Any]) -> bool:
     return candidate["test_metrics"]["log_loss"] < incumbent["test_metrics"]["log_loss"]
 
 
-def compare_models(dataset: Dataset, train_ids: List[str], test_id: str) -> Dict[str, Any]:
+def compare_models(
+    dataset: Dataset,
+    train_ids: List[str],
+    test_id: str,
+    logreg_c_override: Optional[float] = None,
+) -> Dict[str, Any]:
     games = dataset.games
     features = dataset.features
     target = dataset.target
@@ -93,8 +98,10 @@ def compare_models(dataset: Dataset, train_ids: List[str], test_id: str) -> Dict
 
     candidates: List[Dict[str, Any]] = []
 
-    candidate_cs = [0.005, 0.01, 0.02, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0]
-    best_c = tune_logreg_c(candidate_cs, features, target, games, train_ids)
+    candidate_cs = [0.002, 0.005, 0.01, 0.02, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0]
+    best_c = logreg_c_override if logreg_c_override is not None else tune_logreg_c(
+        candidate_cs, features, target, games, train_ids
+    )
     log_result = evaluate_candidate(
         name="Logistic Regression",
         hyperparams={"C": best_c},
@@ -108,25 +115,26 @@ def compare_models(dataset: Dataset, train_ids: List[str], test_id: str) -> Dict
     )
     candidates.append(log_result)
 
-    gb_param_grid: Sequence[Dict[str, Any]] = [
-        {"learning_rate": 0.05, "max_depth": 3, "max_leaf_nodes": 31, "min_samples_leaf": 20},
-        {"learning_rate": 0.05, "max_depth": 4, "max_leaf_nodes": 63, "min_samples_leaf": 25},
-        {"learning_rate": 0.08, "max_depth": 3, "max_leaf_nodes": 63, "min_samples_leaf": 30, "l2_regularization": 0.01},
-        {"learning_rate": 0.1, "max_depth": 3, "max_leaf_nodes": 31, "min_samples_leaf": 35, "l2_regularization": 0.02},
-    ]
-    best_gb_params = tune_histgb_params(gb_param_grid, features, target, games, train_ids)
-    gb_result = evaluate_candidate(
-        name="HistGradientBoosting",
-        hyperparams=best_gb_params,
-        model_factory=lambda: create_histgb_model(params=best_gb_params),
-        features=features,
-        target=target,
-        train_mask=train_mask,
-        test_mask=test_mask,
-        core_mask=core_mask,
-        val_mask=val_mask,
-    )
-    candidates.append(gb_result)
+    if logreg_c_override is None:
+        gb_param_grid: Sequence[Dict[str, Any]] = [
+            {"learning_rate": 0.05, "max_depth": 3, "max_leaf_nodes": 31, "min_samples_leaf": 20},
+            {"learning_rate": 0.05, "max_depth": 4, "max_leaf_nodes": 63, "min_samples_leaf": 25},
+            {"learning_rate": 0.08, "max_depth": 3, "max_leaf_nodes": 63, "min_samples_leaf": 30, "l2_regularization": 0.01},
+            {"learning_rate": 0.1, "max_depth": 3, "max_leaf_nodes": 31, "min_samples_leaf": 35, "l2_regularization": 0.02},
+        ]
+        best_gb_params = tune_histgb_params(gb_param_grid, features, target, games, train_ids)
+        gb_result = evaluate_candidate(
+            name="HistGradientBoosting",
+            hyperparams=best_gb_params,
+            model_factory=lambda: create_histgb_model(params=best_gb_params),
+            features=features,
+            target=target,
+            train_mask=train_mask,
+            test_mask=test_mask,
+            core_mask=core_mask,
+            val_mask=val_mask,
+        )
+        candidates.append(gb_result)
 
     best_result = candidates[0]
     for candidate in candidates[1:]:
@@ -222,6 +230,10 @@ def evaluate_candidate(
 def train(
     train_seasons: List[str] = typer.Option(None, help="Season IDs for training data."),
     test_season: str = typer.Option(None, help="Hold-out season ID for evaluation."),
+    logreg_c: Optional[float] = typer.Option(
+        None,
+        help="Override logistic regression C (skip tuning and force this value).",
+    ),
 ) -> None:
     """Train the model suite and print evaluation metrics."""
     train_ids, test_id = _resolve_seasons(train_seasons, test_season)
@@ -231,7 +243,7 @@ def train(
     dataset: Dataset = build_dataset(combined_seasons)
     target = dataset.target
 
-    comparison = compare_models(dataset, train_ids, test_id)
+    comparison = compare_models(dataset, train_ids, test_id, logreg_c_override=logreg_c)
     candidates = comparison["candidates"]
     best_result = comparison["best_result"]
     train_mask = comparison["train_mask"]
@@ -240,7 +252,10 @@ def train(
 
     for result in candidates:
         if result["name"] == "Logistic Regression":
-            console.log(f"Tuned logistic regression C={result['hyperparams']['C']}")
+            if logreg_c is not None:
+                console.log(f"Logistic regression C set to {logreg_c}")
+            else:
+                console.log(f"Tuned logistic regression C={result['hyperparams']['C']}")
         elif result["name"] == "HistGradientBoosting":
             console.log(f"Tuned gradient boosting params={result['hyperparams']}")
 

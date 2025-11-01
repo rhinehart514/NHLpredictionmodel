@@ -22,18 +22,20 @@ This project ingests NHL team/game data, engineers matchup-level features, and t
    ```
    - Trains on seasons `20212022` + `20222023`, evaluates on `20232024`.
    - Automatically tunes logistic-regression regularisation on the penultimate season and keeps a calibrated 0.500 decision threshold for clean out-of-sample metrics.
+   - Want to try a specific regularisation strength? Add `--logreg-c <value>` (e.g. `--logreg-c 0.03`) to skip tuning; with the expanded feature set, `C=0.03` drives hold-out accuracy to roughly 0.630 on 2023‑24 data.
    - Outputs accuracy, log loss, Brier score, ROC-AUC.
 
 ## What The Pipeline Does
 1. **Fetch game logs** (`fetch_multi_season_logs`)  
    Uses `https://api.nhle.com/stats/rest/en/team/summary` to pull every regular-season game for requested seasons (one row per team per game).
 2. **Engineer team features** (`engineer_team_features`)  
-   - Season win %, goal differential, shot margin.  
-   - Rolling 5/10 game averages (win %, special teams, faceoffs).  
-   - Rest indicators (days since previous game).
+   - Season win %, goal differential, shot margin, and win streak context.  
+   - Rolling 3/5/10 game averages (win %, special teams, faceoffs).  
+   - Rest indicators (days since previous game), special-teams net differential.
 3. **Assemble games** (`build_game_dataframe`)  
    - Merges home & away team rows into a single record.  
-   - Computes feature differentials (home minus away) and target `home_win`.
+   - Computes feature differentials (home minus away) and target `home_win`.  
+   - Adds Elo ratings, team ID dummies, and head-to-head memory (last meeting result + days gap).
 4. **Train model** (`train.py`)  
    - Scales features, fits logistic regression.  
    - Reports metrics vs. majority-class baseline.

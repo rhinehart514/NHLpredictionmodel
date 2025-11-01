@@ -14,6 +14,7 @@ from nhl_prediction.train import compare_models
 
 DEFAULT_TRAIN_SEASONS = ["20212022", "20222023"]
 DEFAULT_TEST_SEASON = "20232024"
+DEFAULT_LOGREG_C = 0.03
 
 st.set_page_config(page_title="NHL Game Prediction Dashboard", layout="wide")
 st.title("NHL Game Prediction Dashboard")
@@ -33,7 +34,9 @@ def load_dataset(train_seasons: Tuple[str, ...], test_season: str) -> Dataset:
     return build_dataset(seasons)
 
 
-def prepare_predictions(dataset: Dataset, train_seasons: List[str], test_season: str) -> Dict[str, object]:
+def prepare_predictions(
+    dataset: Dataset, train_seasons: List[str], test_season: str, logreg_c: float
+) -> Dict[str, object]:
     games = dataset.games.copy()
     features = dataset.features
     target = dataset.target
@@ -44,7 +47,7 @@ def prepare_predictions(dataset: Dataset, train_seasons: List[str], test_season:
     if train_mask.sum() == 0 or test_mask.sum() == 0:
         raise ValueError("No games available for the selected train/test split.")
 
-    comparison = compare_models(dataset, train_seasons, test_season)
+    comparison = compare_models(dataset, train_seasons, test_season, logreg_c_override=logreg_c)
     best_result = comparison["best_result"]
     candidates = comparison["candidates"]
 
@@ -108,6 +111,7 @@ def prepare_predictions(dataset: Dataset, train_seasons: List[str], test_season:
         "recommended_threshold": recommended_threshold,
         "candidate_summaries": candidates,
         "best_val_metrics": best_result["val_metrics"],
+        "logreg_c": logreg_c,
     }
 
 
@@ -125,6 +129,12 @@ with st.sidebar:
         options=available_seasons,
         index=available_seasons.index(DEFAULT_TEST_SEASON),
     )
+    logreg_c_value = st.select_slider(
+        "Logistic Regression C",
+        options=[0.005, 0.01, 0.02, 0.03, 0.04, 0.05],
+        value=DEFAULT_LOGREG_C,
+        help="Higher C = weaker regularisation. 0.03 gave the best 2023‑24 accuracy in recent tests.",
+    )
     st.caption(
         "Season IDs follow NHL notation: e.g., 20232024 represents the 2023-24 regular season."
     )
@@ -137,7 +147,7 @@ if not train_tuple:
 
 try:
     dataset = load_dataset(train_tuple, test_selection)
-    outputs = prepare_predictions(dataset, list(train_tuple), test_selection)
+    outputs = prepare_predictions(dataset, list(train_tuple), test_selection, logreg_c_value)
 except Exception as exc:  # broad to surface network or API issues in UI
     st.error(f"Unable to build dataset or predictions: {exc}")
     st.stop()
@@ -152,6 +162,7 @@ decision_threshold = outputs["decision_threshold"]
 recommended_threshold = outputs["recommended_threshold"]
 candidate_summaries = outputs["candidate_summaries"]
 best_val_metrics = outputs["best_val_metrics"]
+selected_logreg_c = outputs["logreg_c"]
 
 st.subheader("Model Performance")
 metric_cols = st.columns(3)
@@ -165,7 +176,7 @@ caption_text = (
     f"Training Accuracy: {train_metrics['accuracy']:.3f} | "
     f"Training ROC-AUC: {train_metrics['roc_auc']:.3f} | "
     f"Training Log Loss: {train_metrics['log_loss']:.3f} | "
-    f"Decision Threshold: {decision_threshold:.3f} | Params: {param_text}"
+    f"Decision Threshold: {decision_threshold:.3f} | Params: {param_text} | LogReg C: {selected_logreg_c}"
 )
 st.caption(caption_text)
 if best_val_metrics is not None:

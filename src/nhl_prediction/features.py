@@ -14,6 +14,19 @@ def _lagged_rolling(group: pd.Series, window: int, min_periods: int = 1) -> pd.S
     return group.shift(1).rolling(window, min_periods=min_periods).mean()
 
 
+def _streak(series: pd.Series) -> pd.Series:
+    """Return length of current win streak entering each game."""
+    streak = np.zeros(len(series), dtype=int)
+    count = 0
+    for idx, value in enumerate(series):
+        if value == 1:
+            count += 1
+        else:
+            count = 0
+        streak[idx] = count
+    return pd.Series(streak, index=series.index).shift(1).fillna(0).astype(int)
+
+
 def engineer_team_features(logs: pd.DataFrame, rolling_windows: Iterable[int] = ROLL_WINDOWS) -> pd.DataFrame:
     """Create lagged features using only information available prior to each game."""
     logs = logs.copy()
@@ -34,6 +47,8 @@ def engineer_team_features(logs: pd.DataFrame, rolling_windows: Iterable[int] = 
         "winsInShootout",
         "points",
         "pointPct",
+        "powerPlayNetPct",
+        "penaltyKillNetPct",
     ]
     for column in numeric_columns:
         logs[column] = pd.to_numeric(logs[column], errors="coerce")
@@ -94,6 +109,7 @@ def engineer_team_features(logs: pd.DataFrame, rolling_windows: Iterable[int] = 
     logs["momentum_shot_margin"] = logs["shot_margin_last_game"] - logs["season_shot_margin"]
 
     # Team strength prior to the current game
+    logs["win_streak"] = group["win"].transform(_streak)
     logs["wins_prior"] = group["wins"].shift(1)
     logs["losses_prior"] = group["losses"].shift(1)
     logs["ot_losses_prior"] = group["otLosses"].shift(1)
@@ -103,6 +119,9 @@ def engineer_team_features(logs: pd.DataFrame, rolling_windows: Iterable[int] = 
     logs["points_prior"] = group["points"].shift(1)
     logs["point_pct_prior"] = group["pointPct"].shift(1)
     logs["points_per_game_prior"] = logs["points_prior"] / (logs["games_played_prior"].replace(0, np.nan) * 2)
+    logs["pp_pct_prior"] = group["powerPlayPct"].shift(1) / 100.0
+    logs["pk_pct_prior"] = group["penaltyKillPct"].shift(1) / 100.0
+    logs["special_teams_net_prior"] = (group["powerPlayNetPct"].shift(1) - group["penaltyKillNetPct"].shift(1)) / 100.0
 
     # Schedule congestion indicators
     gap = logs.groupby("teamId", sort=False)["rest_days"]
@@ -124,6 +143,7 @@ def engineer_team_features(logs: pd.DataFrame, rolling_windows: Iterable[int] = 
         "momentum_win_pct",
         "momentum_goal_diff",
         "momentum_shot_margin",
+        "win_streak",
         "wins_prior",
         "losses_prior",
         "ot_losses_prior",
@@ -133,6 +153,9 @@ def engineer_team_features(logs: pd.DataFrame, rolling_windows: Iterable[int] = 
         "points_prior",
         "point_pct_prior",
         "points_per_game_prior",
+        "pp_pct_prior",
+        "pk_pct_prior",
+        "special_teams_net_prior",
         "rest_days",
         "is_b2b",
         "games_last_3d",

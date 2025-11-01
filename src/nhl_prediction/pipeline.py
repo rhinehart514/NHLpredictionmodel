@@ -25,6 +25,7 @@ def build_dataset(seasons: Iterable[str]) -> Dataset:
     enriched_logs = engineer_team_features(raw_logs)
     games = build_game_dataframe(enriched_logs)
     games = _add_elo_features(games)
+    games = _add_head_to_head_features(games)
 
     rolling_windows = ROLL_WINDOWS
     feature_bases: List[str] = [
@@ -35,6 +36,7 @@ def build_dataset(seasons: Iterable[str]) -> Dataset:
         "momentum_win_pct",
         "momentum_goal_diff",
         "momentum_shot_margin",
+        "win_streak",
         "wins_prior",
         "losses_prior",
         "ot_losses_prior",
@@ -44,6 +46,9 @@ def build_dataset(seasons: Iterable[str]) -> Dataset:
         "points_prior",
         "point_pct_prior",
         "points_per_game_prior",
+        "pp_pct_prior",
+        "pk_pct_prior",
+        "special_teams_net_prior",
         "rest_days",
         "is_b2b",
         "games_last_3d",
@@ -86,6 +91,9 @@ def build_dataset(seasons: Iterable[str]) -> Dataset:
         "is_b2b_away",
         "elo_diff_pre",
         "elo_expectation_home",
+        "last_meeting_goal_diff_oriented",
+        "last_meeting_home_win",
+        "last_meeting_days",
     ]
     for feat in additional_features:
         if feat in games.columns:
@@ -191,4 +199,39 @@ def _add_elo_features(
     games["elo_away_pre"] = elo_away
     games["elo_diff_pre"] = games["elo_home_pre"] - games["elo_away_pre"]
     games["elo_expectation_home"] = expected_home_probs
+    return games
+
+
+def _add_head_to_head_features(games: pd.DataFrame) -> pd.DataFrame:
+    """Attach info from the previous meeting between the two teams in the same season."""
+    games = games.sort_values("gameDate").copy()
+    last_matchups: Dict[tuple[str, int, int], tuple[int, int, pd.Timestamp]] = {}
+    oriented_diffs: list[float] = []
+    home_win_flags: list[int] = []
+    days_since_last: list[float] = []
+
+    for _, row in games.iterrows():
+        season = row["seasonId"]
+        home_id = int(row["teamId_home"])
+        away_id = int(row["teamId_away"])
+        key = (season, min(home_id, away_id), max(home_id, away_id))
+        prev = last_matchups.get(key)
+
+        if prev is None:
+            oriented_diffs.append(0.0)
+            home_win_flags.append(0)
+            days_since_last.append(0.0)
+        else:
+            prev_home_id, prev_goal_diff, prev_date = prev
+            oriented_diff = prev_goal_diff if prev_home_id == home_id else -prev_goal_diff
+            oriented_diffs.append(float(oriented_diff))
+            home_win_flags.append(1 if oriented_diff > 0 else 0)
+            days_since_last.append((row["gameDate"] - prev_date).days if pd.notna(prev_date) else 0.0)
+
+        current_goal_diff = int(row["home_score"] - row["away_score"])
+        last_matchups[key] = (home_id, current_goal_diff, row["gameDate"])
+
+    games["last_meeting_goal_diff_oriented"] = oriented_diffs
+    games["last_meeting_home_win"] = home_win_flags
+    games["last_meeting_days"] = days_since_last
     return games

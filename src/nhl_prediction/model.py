@@ -118,14 +118,18 @@ def tune_logreg_c(
         return 1.0
 
     best_c = candidate_cs[0]
+    best_acc = float("-inf")
     best_loss = float("inf")
 
     for c in candidate_cs:
         model = create_baseline_model(C=c)
         model = fit_model(model, features, target, core_mask)
         probs = predict_probabilities(model, features, val_mask)
+        preds = (probs >= 0.5).astype(int)
+        acc = accuracy_score(target.loc[val_mask], preds)
         loss = log_loss(target.loc[val_mask], probs)
-        if loss < best_loss:
+        if acc > best_acc or (np.isclose(acc, best_acc) and loss < best_loss):
+            best_acc = acc
             best_loss = loss
             best_c = c
 

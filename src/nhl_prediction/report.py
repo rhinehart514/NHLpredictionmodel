@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import matplotlib
 
@@ -122,6 +122,9 @@ def report(
     train_seasons: List[str] = typer.Option(None, help="Season IDs for training data."),
     test_season: str = typer.Option(None, help="Hold-out season ID for evaluation."),
     output_dir: Path = typer.Option(Path("reports"), help="Directory to store CSVs and plots."),
+    logreg_c: Optional[float] = typer.Option(
+        None, help="Override logistic regression C (skip tuning and force this value)."
+    ),
 ) -> None:
     """Generate CSV outputs and plots for stakeholders."""
     train_ids, test_id = _resolve_seasons(train_seasons, test_season)
@@ -140,12 +143,15 @@ def report(
     if train_mask.sum() == 0 or test_mask.sum() == 0:
         raise typer.BadParameter("Insufficient games for the provided seasons.")
 
-    candidate_cs = [0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 2.0, 3.0]
-    best_c = tune_logreg_c(candidate_cs, features, target, games, train_ids)
+    candidate_cs = [0.002, 0.005, 0.01, 0.02, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0]
+    best_c = logreg_c if logreg_c is not None else tune_logreg_c(candidate_cs, features, target, games, train_ids)
     threshold, val_acc, calibrator = calibrate_threshold(best_c, features, target, games, train_ids)
     decision_threshold = 0.5
 
-    console.log(f"Selected logistic regression C={best_c}")
+    if logreg_c is not None:
+        console.log(f"Using logistic regression C={best_c} (override)")
+    else:
+        console.log(f"Selected logistic regression C={best_c}")
     if val_acc is not None:
         console.log(
             f"Validation suggested threshold {threshold:.3f} (validation accuracy {val_acc:.3f}); "
