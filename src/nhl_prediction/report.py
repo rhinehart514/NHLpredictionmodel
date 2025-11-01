@@ -9,23 +9,16 @@ import matplotlib
 
 matplotlib.use("Agg")  # ensure plots render in headless environments.
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import typer
 from rich.console import Console
 from sklearn.calibration import calibration_curve
-from sklearn.metrics import ConfusionMatrixDisplay, accuracy_score, confusion_matrix, roc_curve
+from sklearn.metrics import ConfusionMatrixDisplay, accuracy_score, confusion_matrix, log_loss, roc_curve
 
-from .model import (
-    blend_with_elo,
-    calibrate_threshold,
-    compute_feature_effects,
-    compute_metrics,
-    create_baseline_model,
-    fit_model,
-    predict_probabilities,
-    tune_logreg_c,
-)
+from .model import compute_feature_effects, compute_metrics
 from .pipeline import Dataset, build_dataset
+from .train import compare_models
 
 app = typer.Typer(add_completion=False)
 console = Console()
@@ -144,40 +137,34 @@ def report(
     if train_mask.sum() == 0 or test_mask.sum() == 0:
         raise typer.BadParameter("Insufficient games for the provided seasons.")
 
-    candidate_cs = [0.002, 0.005, 0.01, 0.02, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0]
-    best_c = logreg_c if logreg_c is not None else tune_logreg_c(candidate_cs, features, target, games, train_ids)
-    threshold, val_acc, calibrator = calibrate_threshold(best_c, features, target, games, train_ids)
-    decision_threshold = 0.5
+    comparison = compare_models(dataset, train_ids, test_id, logreg_c_override=logreg_c)
+    best_result = comparison["best_result"]
+    train_mask = comparison["train_mask"]
+    test_mask = comparison["test_mask"]
+
+    best_c = best_result["hyperparams"].get("C", logreg_c)
+    best_weight = best_result.get("blend_weight", 0.6)
+    decision_threshold = best_result["decision_threshold"]
+    recommended_threshold = best_result["recommended_threshold"]
+    train_metrics = best_result["train_metrics"]
+    test_metrics = best_result["test_metrics"]
+    train_probs = best_result["train_probs"]
+    test_probs = best_result["test_probs"]
+    model = best_result["model"]
 
     if logreg_c is not None:
         console.log(f"Using logistic regression C={best_c} (override)")
     else:
         console.log(f"Selected logistic regression C={best_c}")
-    if val_acc is not None:
+    console.log(f"Blending logistic with Elo using weight {best_weight:.2f} (logistic share)")
+    if best_result.get("val_metrics") is not None:
+        val_info = best_result["val_metrics"]
         console.log(
-            f"Validation suggested threshold {threshold:.3f} (validation accuracy {val_acc:.3f}); "
-            "reports retain 0.500 for out-of-sample comparability."
+            f"Validation suggested threshold {recommended_threshold:.3f} "
+            f"(validation accuracy {val_info['accuracy']:.3f}); reports retain 0.500 for out-of-sample comparability."
         )
     else:
         console.log("Using default 0.500 decision threshold")
-
-    model = create_baseline_model(C=best_c)
-    model = fit_model(model, features, target, train_mask)
-
-    train_probs_raw = predict_probabilities(model, features, train_mask)
-    test_probs_raw = predict_probabilities(model, features, test_mask)
-    train_probs = blend_with_elo(train_probs_raw, games.loc[train_mask, "elo_expectation_home"].to_numpy())
-    test_probs = blend_with_elo(test_probs_raw, games.loc[test_mask, "elo_expectation_home"].to_numpy())
-
-    train_metrics = compute_metrics(target.loc[train_mask], train_probs)
-    test_metrics = compute_metrics(target.loc[test_mask], test_probs)
-
-    train_metrics["accuracy"] = accuracy_score(
-        target.loc[train_mask], (train_probs >= decision_threshold).astype(int)
-    )
-    test_metrics["accuracy"] = accuracy_score(
-        target.loc[test_mask], (test_probs >= decision_threshold).astype(int)
-    )
 
     console.print("[bold]Metrics[/bold]")
     console.print(f"Train – Accuracy {train_metrics['accuracy']:0.3f}, LogLoss {train_metrics['log_loss']:0.3f}, "

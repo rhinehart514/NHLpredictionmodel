@@ -116,6 +116,7 @@ def prepare_predictions(
         "candidate_summaries": candidates,
         "best_val_metrics": best_result["val_metrics"],
         "logreg_c": logreg_c,
+        "blend_weight": best_result.get("blend_weight"),
     }
 
 
@@ -167,6 +168,7 @@ recommended_threshold = outputs["recommended_threshold"]
 candidate_summaries = outputs["candidate_summaries"]
 best_val_metrics = outputs["best_val_metrics"]
 selected_logreg_c = outputs["logreg_c"]
+blend_weight = outputs.get("blend_weight")
 
 st.subheader("Model Performance")
 metric_cols = st.columns(3)
@@ -182,6 +184,8 @@ caption_text = (
     f"Training Log Loss: {train_metrics['log_loss']:.3f} | "
     f"Decision Threshold: {decision_threshold:.3f} | Params: {param_text} | LogReg C: {selected_logreg_c}"
 )
+if blend_weight is not None:
+    caption_text += f" | Elo Blend Weight: {blend_weight:.2f}"
 st.caption(caption_text)
 if best_val_metrics is not None:
     st.caption(
@@ -202,6 +206,7 @@ with st.expander("Model comparison", expanded=False):
                 "Validation ROC-AUC": val["roc_auc"] if val else None,
                 "Recommended Threshold": result["recommended_threshold"],
                 "Hyperparameters": result["hyperparams"],
+                "Blend Weight": result.get("blend_weight"),
                 "Test Accuracy": result["test_metrics"]["accuracy"],
                 "Test Log Loss": result["test_metrics"]["log_loss"],
             }

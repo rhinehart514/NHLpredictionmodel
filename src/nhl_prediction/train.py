@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import typer
 from rich.console import Console
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, log_loss
 
 from .model import (
     blend_with_elo,
@@ -166,11 +166,11 @@ def evaluate_candidate(
     blend_weight: float = 0.6,
 ) -> Dict[str, Any]:
     """Fit, blend with Elo expectations, and score a single model candidate."""
-    def _blend(mask: pd.Series, probs: np.ndarray) -> np.ndarray:
-        elo = games.loc[mask, "elo_expectation_home"].to_numpy()
-        return blend_with_elo(probs, elo, weight=blend_weight)
 
-    decision_threshold = 0.5
+    best_weight = blend_weight
+    best_val_acc: Optional[float] = None
+    best_val_loss: Optional[float] = None
+
     val_metrics: Optional[Dict[str, float]] = None
     val_accuracy: Optional[float] = None
     recommended_threshold = 0.5
@@ -179,7 +179,32 @@ def evaluate_candidate(
         val_model = model_factory()
         val_model = fit_model(val_model, features, target, core_mask)
         raw_val_probs = predict_probabilities(val_model, features, val_mask)
-        val_probs = _blend(val_mask, raw_val_probs)
+        elo_val = games.loc[val_mask, "elo_expectation_home"].to_numpy()
+
+        def _score(weight: float) -> tuple[float, float]:
+            blended = blend_with_elo(raw_val_probs, elo_val, weight=weight)
+            acc = accuracy_score(target.loc[val_mask], (blended >= 0.5).astype(int))
+            loss = log_loss(target.loc[val_mask], blended)
+            return acc, loss
+
+        base_acc, base_loss = _score(blend_weight)
+        best_weight = blend_weight
+        best_val_acc = base_acc
+        best_val_loss = base_loss
+
+        for weight in np.linspace(0.0, 1.0, 11):
+            acc, loss = _score(weight)
+            if acc > best_val_acc or (np.isclose(acc, best_val_acc) and loss < best_val_loss):
+                best_val_acc = acc
+                best_val_loss = loss
+                best_weight = weight
+
+        if best_val_acc - base_acc < 0.005:
+            best_weight = blend_weight
+            best_val_acc = base_acc
+            best_val_loss = base_loss
+
+        val_probs = blend_with_elo(raw_val_probs, elo_val, weight=best_weight)
 
         base_acc = accuracy_score(target.loc[val_mask], (val_probs >= 0.5).astype(int))
         threshold, threshold_acc = find_optimal_threshold(val_probs, target.loc[val_mask])
@@ -198,7 +223,9 @@ def evaluate_candidate(
         val_accuracy = None
         val_metrics = None
 
-    decision_threshold = 0.5
+    def _blend(mask: pd.Series, probs: np.ndarray) -> np.ndarray:
+        elo = games.loc[mask, "elo_expectation_home"].to_numpy()
+        return blend_with_elo(probs, elo, weight=best_weight)
 
     model = model_factory()
     model = fit_model(model, features, target, train_mask)
@@ -210,10 +237,10 @@ def evaluate_candidate(
     test_metrics = compute_metrics(target.loc[test_mask], test_probs)
 
     train_metrics["accuracy"] = accuracy_score(
-        target.loc[train_mask], (train_probs >= decision_threshold).astype(int)
+        target.loc[train_mask], (train_probs >= 0.5).astype(int)
     )
     test_metrics["accuracy"] = accuracy_score(
-        target.loc[test_mask], (test_probs >= decision_threshold).astype(int)
+        target.loc[test_mask], (test_probs >= 0.5).astype(int)
     )
 
     return {
@@ -221,7 +248,7 @@ def evaluate_candidate(
         "model": model,
         "hyperparams": hyperparams,
         "calibrator": None,
-        "decision_threshold": decision_threshold,
+        "decision_threshold": 0.5,
         "recommended_threshold": recommended_threshold,
         "train_metrics": train_metrics,
         "test_metrics": test_metrics,
@@ -229,7 +256,7 @@ def evaluate_candidate(
         "val_accuracy": val_accuracy,
         "train_probs": train_probs,
         "test_probs": test_probs,
-        "blend_weight": blend_weight,
+        "blend_weight": best_weight,
     }
 
 @app.command()
@@ -285,6 +312,8 @@ def train(
         f"(decision threshold {best_result['decision_threshold']:.3f}, "
         f"recommended validation threshold {best_result['recommended_threshold']:.3f})"
     )
+    if best_result.get("blend_weight") is not None:
+        console.print(f"Blend weight (logistic share): {best_result['blend_weight']:.2f}")
     console.print(f"Hyperparameters: {best_result['hyperparams']}")
 
     train_metrics = best_result["train_metrics"]
