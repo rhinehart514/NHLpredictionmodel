@@ -51,11 +51,14 @@ def prepare_predictions(
     best_result = comparison["best_result"]
     candidates = comparison["candidates"]
 
-    model = best_result["model"]
     decision_threshold = best_result["decision_threshold"]
     recommended_threshold = best_result["recommended_threshold"]
-    train_probs = predict_probabilities(model, features, train_mask)
-    test_probs = predict_probabilities(model, features, test_mask)
+    train_probs = best_result.get("train_probs")
+    test_probs = best_result.get("test_probs")
+    if train_probs is None or test_probs is None:
+        model = best_result["model"]
+        train_probs = predict_probabilities(model, features, train_mask)
+        test_probs = predict_probabilities(model, features, test_mask)
 
     train_metrics = best_result["train_metrics"]
     test_metrics = best_result["test_metrics"]
@@ -85,6 +88,7 @@ def prepare_predictions(
 
     importance = None
     if best_result["name"] == "Logistic Regression":
+        model = best_result["model"]
         importance = compute_feature_effects(model, features.columns).head(15)
     else:
         estimator = model.named_steps.get("clf", model)

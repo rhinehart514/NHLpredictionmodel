@@ -96,6 +96,12 @@ def predict_calibrated_probabilities(
     return np.clip(probs, 0.0, 1.0)
 
 
+def blend_with_elo(logistic_probs: np.ndarray, elo_probs: np.ndarray, weight: float = 0.6) -> np.ndarray:
+    """Blend logistic model probabilities with Elo expectations."""
+    blended = weight * logistic_probs + (1.0 - weight) * elo_probs
+    return np.clip(blended, 0.0, 1.0)
+
+
 def tune_logreg_c(
     candidate_cs: Sequence[float],
     features: pd.DataFrame,
@@ -260,4 +266,5 @@ __all__ = [
     "find_optimal_threshold",
     "calibrate_model_threshold",
     "calibrate_threshold",
+    "blend_with_elo",
 ]

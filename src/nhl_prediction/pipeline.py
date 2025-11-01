@@ -8,7 +8,7 @@ from typing import Iterable, List, Dict
 import numpy as np
 import pandas as pd
 
-from .data_ingest import build_game_dataframe, fetch_multi_season_logs
+from .data_ingest import build_game_dataframe, fetch_multi_season_logs, get_team_reference
 from .features import ROLL_WINDOWS, engineer_team_features
 
 
@@ -26,6 +26,7 @@ def build_dataset(seasons: Iterable[str]) -> Dataset:
     games = build_game_dataframe(enriched_logs)
     games = _add_elo_features(games)
     games = _add_head_to_head_features(games)
+    games = _add_static_metadata(games)
 
     rolling_windows = ROLL_WINDOWS
     feature_bases: List[str] = [
@@ -94,6 +95,16 @@ def build_dataset(seasons: Iterable[str]) -> Dataset:
         "last_meeting_goal_diff_oriented",
         "last_meeting_home_win",
         "last_meeting_days",
+        "same_conference",
+        "same_division",
+        "season_win_pct_home",
+        "season_win_pct_away",
+        "win_streak_home",
+        "win_streak_away",
+        "rolling_win_pct_5_home",
+        "rolling_win_pct_5_away",
+        "elo_home_pre",
+        "elo_away_pre",
     ]
     for feat in additional_features:
         if feat in games.columns:
@@ -170,6 +181,16 @@ def build_dataset(seasons: Iterable[str]) -> Dataset:
     games = pd.concat([games, home_team_dummies, away_team_dummies], axis=1)
     feature_columns.extend(home_team_dummies.columns.tolist())
     feature_columns.extend(away_team_dummies.columns.tolist())
+
+    conf_home = pd.get_dummies(games["home_conference"], prefix="home_conf", dtype=int)
+    conf_away = pd.get_dummies(games["away_conference"], prefix="away_conf", dtype=int)
+    div_home = pd.get_dummies(games["home_division"], prefix="home_div", dtype=int)
+    div_away = pd.get_dummies(games["away_division"], prefix="away_div", dtype=int)
+    games = pd.concat([games, conf_home, conf_away, div_home, div_away], axis=1)
+    feature_columns.extend(conf_home.columns.tolist())
+    feature_columns.extend(conf_away.columns.tolist())
+    feature_columns.extend(div_home.columns.tolist())
+    feature_columns.extend(div_away.columns.tolist())
 
     features = games[feature_columns].fillna(0.0)
     target = games["home_win"]
@@ -257,4 +278,23 @@ def _add_head_to_head_features(games: pd.DataFrame) -> pd.DataFrame:
     games["last_meeting_goal_diff_oriented"] = oriented_diffs
     games["last_meeting_home_win"] = home_win_flags
     games["last_meeting_days"] = days_since_last
+    return games
+
+
+def _add_static_metadata(games: pd.DataFrame) -> pd.DataFrame:
+    """Add conference/division and matchup flags."""
+    teams = get_team_reference()[["teamId", "divisionId", "conference"]].copy()
+    teams.rename(columns={"divisionId": "division"}, inplace=True)
+    games = games.merge(
+        teams.rename(columns={"teamId": "teamId_home", "division": "home_division", "conference": "home_conference"}),
+        on="teamId_home",
+        how="left",
+    )
+    games = games.merge(
+        teams.rename(columns={"teamId": "teamId_away", "division": "away_division", "conference": "away_conference"}),
+        on="teamId_away",
+        how="left",
+    )
+    games["same_conference"] = (games["home_conference"] == games["away_conference"]).astype(int)
+    games["same_division"] = (games["home_division"] == games["away_division"]).astype(int)
     return games

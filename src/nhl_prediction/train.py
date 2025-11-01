@@ -8,10 +8,10 @@ import numpy as np
 import pandas as pd
 import typer
 from rich.console import Console
-from sklearn.isotonic import IsotonicRegression
 from sklearn.metrics import accuracy_score
 
 from .model import (
+    blend_with_elo,
     compute_metrics,
     create_baseline_model,
     create_histgb_model,
@@ -112,6 +112,7 @@ def compare_models(
         test_mask=test_mask,
         core_mask=core_mask,
         val_mask=val_mask,
+        games=games,
     )
     candidates.append(log_result)
 
@@ -133,6 +134,7 @@ def compare_models(
             test_mask=test_mask,
             core_mask=core_mask,
             val_mask=val_mask,
+            games=games,
         )
         candidates.append(gb_result)
 
@@ -160,9 +162,14 @@ def evaluate_candidate(
     test_mask: pd.Series,
     core_mask: Optional[pd.Series],
     val_mask: Optional[pd.Series],
+    games: pd.DataFrame,
+    blend_weight: float = 0.6,
 ) -> Dict[str, Any]:
-    """Fit, calibrate, and score a single model candidate."""
-    calibrator: IsotonicRegression | None = None
+    """Fit, blend with Elo expectations, and score a single model candidate."""
+    def _blend(mask: pd.Series, probs: np.ndarray) -> np.ndarray:
+        elo = games.loc[mask, "elo_expectation_home"].to_numpy()
+        return blend_with_elo(probs, elo, weight=blend_weight)
+
     decision_threshold = 0.5
     val_metrics: Optional[Dict[str, float]] = None
     val_accuracy: Optional[float] = None
@@ -171,14 +178,11 @@ def evaluate_candidate(
     if core_mask is not None and val_mask is not None and core_mask.sum() > 0 and val_mask.sum() > 0:
         val_model = model_factory()
         val_model = fit_model(val_model, features, target, core_mask)
-        val_probs = predict_probabilities(val_model, features, val_mask)
+        raw_val_probs = predict_probabilities(val_model, features, val_mask)
+        val_probs = _blend(val_mask, raw_val_probs)
 
         base_acc = accuracy_score(target.loc[val_mask], (val_probs >= 0.5).astype(int))
         threshold, threshold_acc = find_optimal_threshold(val_probs, target.loc[val_mask])
-
-        if np.unique(val_probs).size > 1:
-            calibrator = IsotonicRegression(out_of_bounds="clip")
-            calibrator.fit(val_probs, target.loc[val_mask])
 
         if threshold_acc > base_acc + 0.01:
             recommended_threshold = threshold
@@ -191,7 +195,6 @@ def evaluate_candidate(
         val_metrics["accuracy"] = val_accuracy
         val_metrics["recommended_threshold"] = recommended_threshold
     else:
-        calibrator = None
         val_accuracy = None
         val_metrics = None
 
@@ -200,30 +203,33 @@ def evaluate_candidate(
     model = model_factory()
     model = fit_model(model, features, target, train_mask)
 
-    train_probs_raw = predict_probabilities(model, features, train_mask)
-    test_probs_raw = predict_probabilities(model, features, test_mask)
+    train_probs = _blend(train_mask, predict_probabilities(model, features, train_mask))
+    test_probs = _blend(test_mask, predict_probabilities(model, features, test_mask))
 
-    train_metrics = compute_metrics(target.loc[train_mask], train_probs_raw)
-    test_metrics = compute_metrics(target.loc[test_mask], test_probs_raw)
+    train_metrics = compute_metrics(target.loc[train_mask], train_probs)
+    test_metrics = compute_metrics(target.loc[test_mask], test_probs)
 
     train_metrics["accuracy"] = accuracy_score(
-        target.loc[train_mask], (train_probs_raw >= decision_threshold).astype(int)
+        target.loc[train_mask], (train_probs >= decision_threshold).astype(int)
     )
     test_metrics["accuracy"] = accuracy_score(
-        target.loc[test_mask], (test_probs_raw >= decision_threshold).astype(int)
+        target.loc[test_mask], (test_probs >= decision_threshold).astype(int)
     )
 
     return {
         "name": name,
         "model": model,
         "hyperparams": hyperparams,
-        "calibrator": calibrator,
+        "calibrator": None,
         "decision_threshold": decision_threshold,
         "recommended_threshold": recommended_threshold,
         "train_metrics": train_metrics,
         "test_metrics": test_metrics,
         "val_metrics": val_metrics,
         "val_accuracy": val_accuracy,
+        "train_probs": train_probs,
+        "test_probs": test_probs,
+        "blend_weight": blend_weight,
     }
 
 @app.command()

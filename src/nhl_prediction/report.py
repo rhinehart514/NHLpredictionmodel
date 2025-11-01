@@ -16,6 +16,7 @@ from sklearn.calibration import calibration_curve
 from sklearn.metrics import ConfusionMatrixDisplay, accuracy_score, confusion_matrix, roc_curve
 
 from .model import (
+    blend_with_elo,
     calibrate_threshold,
     compute_feature_effects,
     compute_metrics,
@@ -163,8 +164,10 @@ def report(
     model = create_baseline_model(C=best_c)
     model = fit_model(model, features, target, train_mask)
 
-    train_probs = predict_probabilities(model, features, train_mask)
-    test_probs = predict_probabilities(model, features, test_mask)
+    train_probs_raw = predict_probabilities(model, features, train_mask)
+    test_probs_raw = predict_probabilities(model, features, test_mask)
+    train_probs = blend_with_elo(train_probs_raw, games.loc[train_mask, "elo_expectation_home"].to_numpy())
+    test_probs = blend_with_elo(test_probs_raw, games.loc[test_mask, "elo_expectation_home"].to_numpy())
 
     train_metrics = compute_metrics(target.loc[train_mask], train_probs)
     test_metrics = compute_metrics(target.loc[test_mask], test_probs)

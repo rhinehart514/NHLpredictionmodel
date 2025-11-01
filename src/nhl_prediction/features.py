@@ -7,6 +7,8 @@ from typing import Iterable, Sequence
 import numpy as np
 import pandas as pd
 
+from .data_ingest import get_team_reference
+
 ROLL_WINDOWS: Sequence[int] = (3, 5, 10)
 
 
@@ -30,6 +32,13 @@ def _streak(series: pd.Series) -> pd.Series:
 def engineer_team_features(logs: pd.DataFrame, rolling_windows: Iterable[int] = ROLL_WINDOWS) -> pd.DataFrame:
     """Create lagged features using only information available prior to each game."""
     logs = logs.copy()
+
+    if "opponentTeamId" not in logs.columns:
+        teams = get_team_reference()[["teamId", "teamAbbrev"]]
+        abbrev_to_id = teams.set_index("teamAbbrev")["teamId"].to_dict()
+        logs["opponentTeamId"] = logs["opponentTeamAbbrev"].map(abbrev_to_id)
+        logs = logs.dropna(subset=["opponentTeamId"])
+        logs["opponentTeamId"] = logs["opponentTeamId"].astype(int)
 
     numeric_columns = [
         "goalsFor",
@@ -168,6 +177,30 @@ def engineer_team_features(logs: pd.DataFrame, rolling_windows: Iterable[int] = 
         where=logs["away_games_prior"] != 0,
     )
 
+    opponent_cols = logs[
+        [
+            "teamId",
+            "seasonId",
+            "gameId",
+            "season_win_pct",
+            "rolling_win_pct_5",
+            "win_streak",
+        ]
+    ].rename(
+        columns={
+            "teamId": "opponentTeamId",
+            "season_win_pct": "opponent_season_win_pct",
+            "rolling_win_pct_5": "opponent_rolling_win_pct_5",
+            "win_streak": "opponent_win_streak",
+        }
+    )
+    logs = logs.merge(opponent_cols, on=["opponentTeamId", "seasonId", "gameId"], how="left")
+    logs.drop(columns=["_home_flag", "_away_flag", "_home_win_flag", "_away_win_flag", "_home_goal_flag", "_away_goal_flag"], inplace=True, errors="ignore")
+    group_latest = logs.groupby(["teamId", "seasonId"], sort=False)
+    logs["opponent_strength_avg_5"] = group_latest["opponent_season_win_pct"].transform(
+        lambda s: s.shift(1).rolling(5, min_periods=1).mean()
+    )
+
     # Schedule congestion indicators
     gap = logs.groupby("teamId", sort=False)["rest_days"]
     recent_one_day = gap.transform(lambda s: s.fillna(10).le(1).astype(int))
@@ -207,6 +240,10 @@ def engineer_team_features(logs: pd.DataFrame, rolling_windows: Iterable[int] = 
         "away_goal_diff_avg_prior",
         "home_games_prior",
         "away_games_prior",
+        "opponent_season_win_pct",
+        "opponent_rolling_win_pct_5",
+        "opponent_win_streak",
+        "opponent_strength_avg_5",
         "rest_days",
         "is_b2b",
         "games_last_3d",

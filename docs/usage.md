@@ -21,8 +21,8 @@ This project ingests NHL team/game data, engineers matchup-level features, and t
    PYTHONPATH=src .venv/bin/python -m nhl_prediction.train
    ```
    - Trains on seasons `20212022` + `20222023`, evaluates on `20232024`.
-   - Automatically tunes logistic-regression regularisation on the penultimate season and keeps a calibrated 0.500 decision threshold for clean out-of-sample metrics.
-   - Want to try a specific regularisation strength? Add `--logreg-c <value>` (e.g. `--logreg-c 0.018`) to skip tuning; the current feature set hits **≈0.632 accuracy**, **0.665 log loss**, and **0.659 ROC-AUC** on the 2023‑24 hold-out.
+   - Automatically tunes logistic-regression regularisation on the penultimate season and blends the logistic probability with Elo expectations for a sharper edge.
+   - Want to try a specific regularisation strength? Add `--logreg-c <value>` (e.g. `--logreg-c 0.018`) to skip tuning; with the logistic+Elo blend the 2023‑24 hold-out jumps to **≈0.636 accuracy**, **0.655 log loss**, and **0.663 ROC-AUC**.
    - Outputs accuracy, log loss, Brier score, ROC-AUC.
 
 ## What The Pipeline Does
@@ -33,6 +33,7 @@ This project ingests NHL team/game data, engineers matchup-level features, and t
    - Home/away-specific win % and goal differential prior to each game.  
    - Rolling 3/5/10 game averages (win %, special teams, faceoffs).  
    - Rest indicators (days since previous game), special-teams net and ratio metrics, shot-pressure ratios.
+   - Goalie form for projected starters (season-to-date save %, 3-game trend, rest between starts).
 3. **Assemble games** (`build_game_dataframe`)  
    - Merges home & away team rows into a single record.  
    - Computes feature differentials (home minus away) and target `home_win`.  
