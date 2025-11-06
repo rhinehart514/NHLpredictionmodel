@@ -165,6 +165,44 @@ def build_dataset(seasons: Iterable[str]) -> Dataset:
     games["away_b2b"] = (games["rest_bucket_away"] == "b2b").astype(int)
     feature_columns.extend(["rest_diff", "home_b2b", "away_b2b"])
 
+    # Add polynomial and interaction features for top predictors
+    if {"rolling_pk_pct_10_home", "rolling_pk_pct_10_away"} <= game_columns:
+        games["rolling_pk_pct_10_diff_sq"] = (games["rolling_pk_pct_10_home"] - games["rolling_pk_pct_10_away"]) ** 2
+        feature_columns.append("rolling_pk_pct_10_diff_sq")
+
+    if {"rolling_faceoff_5_home", "rolling_faceoff_5_away"} <= game_columns:
+        games["rolling_faceoff_5_diff_sq"] = (games["rolling_faceoff_5_home"] - games["rolling_faceoff_5_away"]) ** 2
+        feature_columns.append("rolling_faceoff_5_diff_sq")
+
+    if {"rolling_pp_pct_10_home", "rolling_pp_pct_10_away", "rolling_pk_pct_10_home", "rolling_pk_pct_10_away"} <= game_columns:
+        # Special teams strength index
+        games["special_teams_strength_home"] = games["rolling_pp_pct_10_home"] * games["rolling_pk_pct_10_home"]
+        games["special_teams_strength_away"] = games["rolling_pp_pct_10_away"] * games["rolling_pk_pct_10_away"]
+        games["special_teams_strength_diff"] = games["special_teams_strength_home"] - games["special_teams_strength_away"]
+        feature_columns.append("special_teams_strength_diff")
+
+    # Advanced form metrics
+    if {"rolling_win_pct_5_home", "rolling_win_pct_5_away", "rolling_win_pct_10_home", "rolling_win_pct_10_away"} <= game_columns:
+        # Recent vs longer-term form divergence
+        games["form_momentum_home"] = games["rolling_win_pct_5_home"] - games["rolling_win_pct_10_home"]
+        games["form_momentum_away"] = games["rolling_win_pct_5_away"] - games["rolling_win_pct_10_away"]
+        games["form_momentum_diff"] = games["form_momentum_home"] - games["form_momentum_away"]
+        feature_columns.append("form_momentum_diff")
+
+    # Elo-based features
+    if {"elo_diff_pre", "rolling_win_pct_5_diff"} <= game_columns:
+        # When Elo and recent form agree strongly
+        games["prediction_confidence"] = np.abs(games["elo_diff_pre"]) * np.abs(games["rolling_win_pct_5_diff"])
+        feature_columns.append("prediction_confidence")
+
+    # Experience-adjusted performance
+    if {"games_played_prior_home", "games_played_prior_away", "rolling_win_pct_5_home", "rolling_win_pct_5_away"} <= game_columns:
+        # Reliability: form based on more games is more trustworthy
+        games["reliable_form_home"] = games["rolling_win_pct_5_home"] * np.minimum(games["games_played_prior_home"] / 10.0, 1.0)
+        games["reliable_form_away"] = games["rolling_win_pct_5_away"] * np.minimum(games["games_played_prior_away"] / 10.0, 1.0)
+        games["reliable_form_diff"] = games["reliable_form_home"] - games["reliable_form_away"]
+        feature_columns.append("reliable_form_diff")
+
     games = pd.get_dummies(
         games,
         columns=["rest_bucket_home", "rest_bucket_away"],

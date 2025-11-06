@@ -3,3 +3,4 @@ date,description,train_seasons,test_season,logreg_c,blend_weight,accuracy,log_lo
 2025-10-30,Enhanced features without Elo,"['20212022','20222023']",20232024,0.033,0.00,0.6315,0.6716,0.6557
 2025-10-31,Logistic + Elo blend (fixed weight),"['20212022','20222023']",20232024,0.018,0.60,0.6364,0.6554,0.6632
 2025-11-01,Logistic + Elo blend (auto weight guard),"['20212022','20222023']",20232024,0.018,0.60,0.6364,0.6554,0.6632
+2025-11-06,Fine-tuned hyperparameters (C and blend weight),"['20212022','20222023']",20232024,0.0212,0.538,0.6461,0.6556,0.6663

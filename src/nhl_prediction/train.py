@@ -98,7 +98,7 @@ def compare_models(
 
     candidates: List[Dict[str, Any]] = []
 
-    candidate_cs = [0.002, 0.005, 0.01, 0.02, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0]
+    candidate_cs = [0.002, 0.005, 0.01, 0.02, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0]
     best_c = logreg_c_override if logreg_c_override is not None else tune_logreg_c(
         candidate_cs, features, target, games, train_ids
     )
@@ -192,7 +192,7 @@ def evaluate_candidate(
         best_val_acc = base_acc
         best_val_loss = base_loss
 
-        for weight in np.linspace(0.0, 1.0, 11):
+        for weight in np.linspace(0.0, 1.0, 21):
             acc, loss = _score(weight)
             if acc > best_val_acc or (np.isclose(acc, best_val_acc) and loss < best_val_loss):
                 best_val_acc = acc
